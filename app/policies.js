@@ -1,16 +1,8 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { ModuleScreen } from '../components/ModuleScreen';
+
+const MODULE_TITLE = 'Policies';
+const MODULE_KEY = 'policies';
 
 export default function Screen() {
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Policies</Text>
-      <Text style={styles.text}>Modern module ready for Supabase-powered policies workflows, CRUD, reporting, and automation.</Text>
-    </View>
-  );
+  return <ModuleScreen title={MODULE_TITLE} moduleKey={MODULE_KEY} />;
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#090d1d', padding: 20, justifyContent: 'center' },
-  title: { color: '#fff', fontSize: 30, fontWeight: '700', marginBottom: 14 },
-  text: { color: '#a2add0', fontSize: 15, lineHeight: 22 },
-});
