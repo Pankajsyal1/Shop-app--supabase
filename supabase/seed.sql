@@ -1,108 +1,180 @@
--- Supabase seed script: creates collections (tables) and fills each with 10–15 dummy records.
+-- Supabase bootstrap script for RetailFlow
+-- Creates core tables, role-based auth helpers, and seed data.
 
 create extension if not exists pgcrypto;
 
-create table if not exists categories (
+-- =========================
+-- Auth / RBAC
+-- =========================
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  full_name text,
+  role text not null default 'staff' check (role in ('admin', 'staff')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, full_name, role)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data ->> 'full_name', ''),
+    coalesce(new.raw_user_meta_data ->> 'role', 'staff')
+  )
+  on conflict (id) do nothing;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+
+create or replace function public.current_user_role()
+returns text
+language sql
+stable
+as $$
+  select coalesce((select role from public.profiles where id = auth.uid()), 'staff');
+$$;
+
+-- =========================
+-- Domain tables
+-- =========================
+create table if not exists public.categories (
   id uuid primary key default gen_random_uuid(),
   slug text unique not null,
   name text not null,
   created_at timestamptz not null default now()
 );
 
-create table if not exists customers (
+create table if not exists public.products (
   id uuid primary key default gen_random_uuid(),
-  full_name text not null,
-  email text unique not null,
-  phone text,
-  created_at timestamptz not null default now()
-);
-
-create table if not exists products (
-  id uuid primary key default gen_random_uuid(),
-  category_id uuid references categories(id) on delete set null,
+  category_id uuid references public.categories(id) on delete set null,
   sku text unique not null,
   name text not null,
   description text,
-  price numeric(10,2) not null,
-  stock integer not null default 0,
-  created_at timestamptz not null default now()
+  price numeric(10,2) not null check (price >= 0),
+  stock integer not null default 0 check (stock >= 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
-create table if not exists orders (
+create table if not exists public.sales (
   id uuid primary key default gen_random_uuid(),
-  customer_id uuid not null references customers(id) on delete cascade,
-  order_no text unique not null,
-  status text not null check (status in ('pending', 'paid', 'shipped', 'delivered', 'cancelled')),
-  total_amount numeric(10,2) not null,
+  sale_no text unique not null,
+  sold_by uuid references public.profiles(id) on delete set null,
+  sold_at timestamptz not null default now(),
+  total_amount numeric(10,2) not null check (total_amount >= 0),
+  payment_method text not null default 'cash' check (payment_method in ('cash', 'card', 'transfer', 'wallet')),
+  notes text
+);
+
+create table if not exists public.invoices (
+  id uuid primary key default gen_random_uuid(),
+  invoice_no text unique not null,
+  sale_id uuid references public.sales(id) on delete set null,
+  issued_at timestamptz not null default now(),
+  due_at timestamptz,
+  status text not null default 'issued' check (status in ('draft', 'issued', 'paid', 'void')),
+  total_amount numeric(10,2) not null check (total_amount >= 0),
+  pdf_url text,
+  backup_snapshot_url text
+);
+
+create table if not exists public.stock_movements (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references public.products(id) on delete cascade,
+  movement_type text not null check (movement_type in ('in', 'out', 'adjustment')),
+  quantity integer not null,
+  reason text,
+  reference_type text check (reference_type in ('sale', 'purchase', 'manual')),
+  reference_id uuid,
+  moved_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now()
 );
 
--- 10 category entries
-insert into categories (slug, name)
+-- =========================
+-- RLS
+-- =========================
+alter table public.profiles enable row level security;
+alter table public.categories enable row level security;
+alter table public.products enable row level security;
+alter table public.sales enable row level security;
+alter table public.invoices enable row level security;
+alter table public.stock_movements enable row level security;
+
+-- read access for authenticated users
+create policy if not exists "profiles_select_own_or_admin" on public.profiles
+for select using (id = auth.uid() or public.current_user_role() = 'admin');
+
+create policy if not exists "categories_read_all" on public.categories
+for select to authenticated using (true);
+create policy if not exists "products_read_all" on public.products
+for select to authenticated using (true);
+create policy if not exists "sales_read_all" on public.sales
+for select to authenticated using (true);
+create policy if not exists "invoices_read_all" on public.invoices
+for select to authenticated using (true);
+create policy if not exists "stock_read_all" on public.stock_movements
+for select to authenticated using (true);
+
+-- write access: admin full, staff limited operational writes
+create policy if not exists "categories_admin_write" on public.categories
+for all to authenticated using (public.current_user_role() = 'admin') with check (public.current_user_role() = 'admin');
+
+create policy if not exists "products_admin_write" on public.products
+for all to authenticated using (public.current_user_role() = 'admin') with check (public.current_user_role() = 'admin');
+
+create policy if not exists "sales_staff_insert" on public.sales
+for insert to authenticated with check (public.current_user_role() in ('admin', 'staff'));
+create policy if not exists "sales_admin_update_delete" on public.sales
+for update to authenticated using (public.current_user_role() = 'admin') with check (public.current_user_role() = 'admin');
+create policy if not exists "sales_admin_delete" on public.sales
+for delete to authenticated using (public.current_user_role() = 'admin');
+
+create policy if not exists "invoices_staff_insert_update" on public.invoices
+for insert to authenticated with check (public.current_user_role() in ('admin', 'staff'));
+create policy if not exists "invoices_staff_update" on public.invoices
+for update to authenticated using (public.current_user_role() in ('admin', 'staff')) with check (public.current_user_role() in ('admin', 'staff'));
+create policy if not exists "invoices_admin_delete" on public.invoices
+for delete to authenticated using (public.current_user_role() = 'admin');
+
+create policy if not exists "stock_staff_insert" on public.stock_movements
+for insert to authenticated with check (public.current_user_role() in ('admin', 'staff'));
+create policy if not exists "stock_admin_modify" on public.stock_movements
+for update to authenticated using (public.current_user_role() = 'admin') with check (public.current_user_role() = 'admin');
+create policy if not exists "stock_admin_delete" on public.stock_movements
+for delete to authenticated using (public.current_user_role() = 'admin');
+
+-- =========================
+-- Seeds
+-- =========================
+insert into public.categories (slug, name)
 values
   ('electronics', 'Electronics'),
   ('fashion', 'Fashion'),
   ('beauty', 'Beauty'),
   ('home-kitchen', 'Home & Kitchen'),
-  ('books', 'Books'),
-  ('sports', 'Sports'),
-  ('toys', 'Toys'),
-  ('grocery', 'Grocery'),
-  ('office', 'Office Supplies'),
-  ('pet-care', 'Pet Care')
+  ('books', 'Books')
 on conflict (slug) do nothing;
 
--- 12 customer entries
-insert into customers (full_name, email, phone)
-values
-  ('Ava Thompson', 'ava.thompson@example.com', '+1-555-1001'),
-  ('Liam Carter', 'liam.carter@example.com', '+1-555-1002'),
-  ('Noah Bennett', 'noah.bennett@example.com', '+1-555-1003'),
-  ('Emma Collins', 'emma.collins@example.com', '+1-555-1004'),
-  ('Olivia Reed', 'olivia.reed@example.com', '+1-555-1005'),
-  ('Ethan Brooks', 'ethan.brooks@example.com', '+1-555-1006'),
-  ('Sophia Perry', 'sophia.perry@example.com', '+1-555-1007'),
-  ('Mason Ward', 'mason.ward@example.com', '+1-555-1008'),
-  ('Isabella Hayes', 'isabella.hayes@example.com', '+1-555-1009'),
-  ('James Kelly', 'james.kelly@example.com', '+1-555-1010'),
-  ('Mia Foster', 'mia.foster@example.com', '+1-555-1011'),
-  ('Benjamin Price', 'benjamin.price@example.com', '+1-555-1012')
-on conflict (email) do nothing;
-
--- 15 product entries
-insert into products (category_id, sku, name, description, price, stock)
+insert into public.products (category_id, sku, name, description, price, stock)
 select c.id, v.sku, v.name, v.description, v.price, v.stock
 from (values
   ('electronics', 'SKU-EL-001', 'Wireless Earbuds', 'Bluetooth 5.3 noise-cancelling earbuds', 79.99, 120),
   ('electronics', 'SKU-EL-002', 'Smart Watch', 'Fitness and heart-rate tracking smartwatch', 129.00, 80),
   ('fashion', 'SKU-FA-001', 'Classic Denim Jacket', 'Unisex blue denim jacket', 64.50, 45),
   ('beauty', 'SKU-BE-001', 'Vitamin C Serum', '30ml brightening face serum', 24.99, 150),
-  ('home-kitchen', 'SKU-HK-001', 'Air Fryer 5L', 'Digital low-oil air fryer', 99.90, 35),
-  ('books', 'SKU-BO-001', 'Atomic Habits', 'Best-selling self-improvement book', 18.99, 200),
-  ('sports', 'SKU-SP-001', 'Yoga Mat Pro', 'Non-slip 6mm yoga mat', 34.95, 90),
-  ('toys', 'SKU-TO-001', 'Building Blocks Set', '120-piece creative block kit', 29.99, 70),
-  ('grocery', 'SKU-GR-001', 'Organic Coffee Beans', '1kg medium roast coffee', 21.49, 110),
-  ('office', 'SKU-OF-001', 'Ergonomic Office Chair', 'Adjustable lumbar support chair', 189.99, 25),
-  ('pet-care', 'SKU-PC-001', 'Dog Chew Toys Pack', 'Durable 5-piece toy set', 16.75, 140),
-  ('electronics', 'SKU-EL-003', 'Portable Power Bank', '20,000mAh fast-charging battery', 45.00, 95),
-  ('home-kitchen', 'SKU-HK-002', 'Stainless Cookware Set', '10-piece induction-ready set', 149.00, 30),
-  ('fashion', 'SKU-FA-002', 'Running Sneakers', 'Lightweight everyday sneakers', 72.00, 60),
-  ('books', 'SKU-BO-002', 'Deep Work', 'Productivity and focus guide', 17.50, 130)
+  ('books', 'SKU-BO-001', 'Atomic Habits', 'Best-selling self-improvement book', 18.99, 200)
 ) as v(category_slug, sku, name, description, price, stock)
-join categories c on c.slug = v.category_slug
+join public.categories c on c.slug = v.category_slug
 on conflict (sku) do nothing;
-
--- 12 order entries
-insert into orders (customer_id, order_no, status, total_amount)
-select cu.id,
-       format('ORD-2026-%s', lpad(gs::text, 4, '0')) as order_no,
-       (array['pending','paid','shipped','delivered','cancelled'])[1 + (gs % 5)] as status,
-       round((25 + random() * 375)::numeric, 2) as total_amount
-from generate_series(1, 12) gs
-join lateral (
-  select id
-  from customers
-  order by random()
-  limit 1
-) cu on true
-on conflict (order_no) do nothing;
