@@ -6,6 +6,8 @@ import { Card } from '../components/Card';
 const STOCK_FILTERS = ['All', 'Low Stock', 'In Stock'];
 const SORT_OPTIONS = ['Name (A-Z)', 'Price (High-Low)', 'Stock (Low-High)'];
 
+const parsePrice = (price) => Number.parseFloat(String(price).replace(/[^0-9.-]+/g, '')) || 0;
+
 export default function Screen() {
   const [query, setQuery] = useState('');
   const [stockFilter, setStockFilter] = useState('All');
@@ -31,7 +33,7 @@ export default function Screen() {
       })
       .sort((a, b) => {
         if (sortBy === 'Price (High-Low)') {
-          return b.price - a.price;
+          return parsePrice(b.price) - parsePrice(a.price);
         }
 
         if (sortBy === 'Stock (Low-High)') {
