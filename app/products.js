@@ -6,7 +6,10 @@ import { Card } from '../components/Card';
 const STOCK_FILTERS = ['All', 'Low Stock', 'In Stock'];
 const SORT_OPTIONS = ['Name (A-Z)', 'Price (High-Low)', 'Stock (Low-High)'];
 
-const parsePrice = (price) => Number.parseFloat(String(price).replace(/[^0-9.-]+/g, '')) || 0;
+const parsePrice = (price) => {
+  const numericPrice = Number.parseFloat(String(price).replace(/[^0-9.-]+/g, ''));
+  return Number.isNaN(numericPrice) ? 0 : numericPrice;
+};
 
 export default function Screen() {
   const [query, setQuery] = useState('');
@@ -33,7 +36,9 @@ export default function Screen() {
       })
       .sort((a, b) => {
         if (sortBy === 'Price (High-Low)') {
-          return parsePrice(b.price) - parsePrice(a.price);
+          const priceA = parsePrice(a.price);
+          const priceB = parsePrice(b.price);
+          return priceB - priceA;
         }
 
         if (sortBy === 'Stock (Low-High)') {
