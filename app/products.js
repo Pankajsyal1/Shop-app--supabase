@@ -4,29 +4,43 @@ import { products } from '../data/mock';
 import { Card } from '../components/Card';
 
 const STOCK_FILTERS = ['All', 'Low Stock', 'In Stock'];
+const SORT_OPTIONS = ['Name (A-Z)', 'Price (High-Low)', 'Stock (Low-High)'];
 
 export default function Screen() {
   const [query, setQuery] = useState('');
   const [stockFilter, setStockFilter] = useState('All');
+  const [sortBy, setSortBy] = useState('Name (A-Z)');
 
   const filteredProducts = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
-    return products.filter((item) => {
-      const matchQuery =
-        !normalizedQuery ||
-        item.name.toLowerCase().includes(normalizedQuery) ||
-        item.sku.toLowerCase().includes(normalizedQuery) ||
-        item.category.toLowerCase().includes(normalizedQuery);
+    return [...products]
+      .filter((item) => {
+        const matchQuery =
+          !normalizedQuery ||
+          item.name.toLowerCase().includes(normalizedQuery) ||
+          item.sku.toLowerCase().includes(normalizedQuery) ||
+          item.category.toLowerCase().includes(normalizedQuery);
 
-      const matchStock =
-        stockFilter === 'All' ||
-        (stockFilter === 'Low Stock' && item.stock <= 10) ||
-        (stockFilter === 'In Stock' && item.stock > 10);
+        const matchStock =
+          stockFilter === 'All' ||
+          (stockFilter === 'Low Stock' && item.stock <= 10) ||
+          (stockFilter === 'In Stock' && item.stock > 10);
 
-      return matchQuery && matchStock;
-    });
-  }, [query, stockFilter]);
+        return matchQuery && matchStock;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'Price (High-Low)') {
+          return b.price - a.price;
+        }
+
+        if (sortBy === 'Stock (Low-High)') {
+          return a.stock - b.stock;
+        }
+
+        return a.name.localeCompare(b.name);
+      });
+  }, [query, stockFilter, sortBy]);
 
   const stats = useMemo(() => {
     const totalProducts = filteredProducts.length;
@@ -54,6 +68,17 @@ export default function Screen() {
           const active = item === stockFilter;
           return (
             <Pressable key={item} onPress={() => setStockFilter(item)} style={[styles.filterBtn, active && styles.filterBtnActive]}>
+              <Text style={[styles.filterText, active && styles.filterTextActive]}>{item}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={styles.filterRow}>
+        {SORT_OPTIONS.map((item) => {
+          const active = item === sortBy;
+          return (
+            <Pressable key={item} onPress={() => setSortBy(item)} style={[styles.filterBtn, active && styles.filterBtnActive]}>
               <Text style={[styles.filterText, active && styles.filterTextActive]}>{item}</Text>
             </Pressable>
           );
