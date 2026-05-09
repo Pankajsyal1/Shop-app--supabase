@@ -1,6 +1,17 @@
-# Shop Pro (Expo + Supabase)
+# RetailFlow White Label (Expo + Supabase)
 
 A cross-platform **web + mobile** shop management app starter built with React Native Expo and Supabase.
+
+
+## White-label customization
+Update one file to rebrand for each client:
+- `constants/branding.js`: app name, tagline, slug, scheme, and package-facing name.
+
+Recommended per-client flow:
+1. Copy the project for the client.
+2. Update values in `constants/branding.js`.
+3. Mirror `expo.name`, `expo.slug`, `expo.scheme` in `app.json`.
+4. Mirror `name` in `package.json`.
 
 ## Included modules
 - Dashboard widgets + chart analytics

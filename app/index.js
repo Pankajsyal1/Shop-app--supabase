@@ -3,12 +3,13 @@ import { ScrollView, View, Text, StyleSheet, Pressable } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { dashboardData, products } from '../data/mock';
 import { Card } from '../components/Card';
+import { BRANDING, getDashboardHeading } from '../constants/branding';
 
 export default function Dashboard() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.heading}>Shop Pro Dashboard</Text>
-      <Text style={styles.subheading}>Inventory, sales, invoicing, analytics and operations in one place.</Text>
+      <Text style={styles.heading}>{getDashboardHeading()}</Text>
+      <Text style={styles.subheading}>{BRANDING.appTagline}</Text>
 
       <View style={styles.grid}>
         <Card title="Total Revenue" value={dashboardData.revenue} subtitle="+14% this month" />
